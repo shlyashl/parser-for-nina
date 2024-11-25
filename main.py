@@ -12,7 +12,7 @@ class GetVKPosts:
         self.group_name = group_name
         self.api_version = "5.131"
         self.posts_at_a_time = 100
-        self.post_offset = 1
+        self.post_offset = 0
         self.post_number = post_number
         self.post_filter = {
             "ad_allowed": True,
@@ -43,6 +43,7 @@ class GetVKPosts:
             "comment_from_id",
             "comment_text",
             "comment_date",
+            "comment_level",
         ]
         if not os.path.exists(self.out_xlsx_name):
             wb = Workbook()
@@ -80,14 +81,14 @@ class GetVKPosts:
 
     def parse_wall_data(self):
         data = self.api.method(method="wall.get", values={
-                "domain": self.group_name,
-                "offset": self.post_offset,
-                "count": self.posts_at_a_time
-            })["items"]
+            "domain": self.group_name,
+            "offset": self.post_offset,
+            "count": self.posts_at_a_time
+        })["items"]
 
         return [
             [
-                post["comments"]["count"] > 0,
+                post["comments"]["count"],
                 post["date"],
                 post["type"],
                 post["from_id"],
@@ -100,20 +101,38 @@ class GetVKPosts:
             for post in data
         ]
 
-    def parse_wall_comments(self, owner_id, post_id):
-        data = self.api.method(method="wall.getComments", values={
+    def parse_wall_comments(self, owner_id, post_id, comment_id=None, lvl=0):
+        lvl += 1
+        posts_at_a_time = 100
+        comment_offset = 0
+        data = []
+        has_comments = 1
+        while has_comments:
+            data_part = self.api.method(method="wall.getComments", values={
                 "owner_id": owner_id,
-                "post_id": post_id
-            })["items"]
-        return [
-            [
+                "post_id": post_id,
+                "count": posts_at_a_time,
+                "offset": comment_offset,
+                "comment_id": comment_id,
+            }).get("items")
+            if data_part:
+                data += data_part
+                comment_offset += posts_at_a_time
+            else:
+                has_comments = 0
+        comments = []
+        for comment in data:
+            comments.append([
                 comment["id"],
                 comment["from_id"],
                 comment["text"],
-                comment["date"]
-            ]
-            for comment in data
-        ]
+                comment["date"],
+                lvl
+            ])
+            sub_comments = self.parse_wall_comments(owner_id, post_id, comment["id"], lvl)
+            if sub_comments:
+                comments += sub_comments
+        return comments
 
     def run(self):
         if not self.post_number:
@@ -128,9 +147,10 @@ class GetVKPosts:
                         self.write_row_to_wb(post_data + comment)
                 else:
                     self.write_row_to_wb(post_data)
-                sleep(1)
+                sleep(0)
 
 
 if __name__ == "__main__":
-    v = GetVKPosts("mossobyanin", out_xlsx_name="mossobyanin")
+    v = GetVKPosts("mossobyanin", out_xlsx_name="mossobyanin4")
     v.run()
+    
